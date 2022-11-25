@@ -59,6 +59,8 @@ class ClientServingThread extends Thread {
                         if (!server.checkForProperlyHandleEndpoint(request, out)) {
                             continue;
                         }
+                        System.out.println(request.getQueryParams());  // check param parsing
+                        System.out.println(request.getQueryParam("last"));
                         server.getHandler(request).handle(request, out);
                     } else {
                         final var filePath = Path.of(".", "public", path);
