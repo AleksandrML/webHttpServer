@@ -9,12 +9,15 @@ import java.util.List;
 
 class ClientServingThread extends Thread {
 
-    private Socket socket;
-    private List<String> validPaths;
+    private final Socket socket;
 
-    public ClientServingThread(List<String> validPaths, Socket socket) throws IOException {
+    private final Server server;
+    private final List<String> validPaths;
+
+    public ClientServingThread(List<String> validPaths, Socket socket, Server server) throws IOException {
         this.validPaths = validPaths;
         this.socket = socket;
+        this.server = server;
         start();
     }
 
@@ -50,50 +53,48 @@ class ClientServingThread extends Thread {
                         return;
                     }
 
-                    final var path = parts[1];
+                    final var path = parts[1];  // priority to static paths as it was before, then to handlers if there are not any static paths for requested
                     if (!validPaths.contains(path)) {
-                        out.write((
-                                "HTTP/1.1 404 Not Found\r\n" +
-                                        "Content-Length: 0\r\n" +
-                                        "Connection: close\r\n" +
-                                        "\r\n"
-                        ).getBytes());
-                        out.flush();
-                        continue;
-                    }
+                        Request request = new Request().parse(parts);
+                        if (!server.checkForProperlyHandleEndpoint(request, out)) {
+                            continue;
+                        }
+                        server.getHandler(request).handle(request, out);
+                    } else {
+                        final var filePath = Path.of(".", "public", path);
+                        final var mimeType = Files.probeContentType(filePath);
 
-                    final var filePath = Path.of(".", "public", path);
-                    final var mimeType = Files.probeContentType(filePath);
+                        // special case for classic
+                        if (path.equals("/classic.html")) {
+                            final var template = Files.readString(filePath);
+                            final var content = template.replace(
+                                    "{time}",
+                                    LocalDateTime.now().toString()
+                            ).getBytes();
+                            out.write((
+                                    "HTTP/1.1 200 OK\r\n" +
+                                            "Content-Type: " + mimeType + "\r\n" +
+                                            "Content-Length: " + content.length + "\r\n" +
+                                            "Connection: close\r\n" +
+                                            "\r\n"
+                            ).getBytes());
+                            out.write(content);
+                            out.flush();
+                            continue;
+                        }
 
-                    // special case for classic
-                    if (path.equals("/classic.html")) {
-                        final var template = Files.readString(filePath);
-                        final var content = template.replace(
-                                "{time}",
-                                LocalDateTime.now().toString()
-                        ).getBytes();
+                        final var length = Files.size(filePath);
                         out.write((
                                 "HTTP/1.1 200 OK\r\n" +
                                         "Content-Type: " + mimeType + "\r\n" +
-                                        "Content-Length: " + content.length + "\r\n" +
+                                        "Content-Length: " + length + "\r\n" +
                                         "Connection: close\r\n" +
                                         "\r\n"
                         ).getBytes());
-                        out.write(content);
+                        Files.copy(filePath, out);
                         out.flush();
-                        continue;
                     }
 
-                    final var length = Files.size(filePath);
-                    out.write((
-                            "HTTP/1.1 200 OK\r\n" +
-                                    "Content-Type: " + mimeType + "\r\n" +
-                                    "Content-Length: " + length + "\r\n" +
-                                    "Connection: close\r\n" +
-                                    "\r\n"
-                    ).getBytes());
-                    Files.copy(filePath, out);
-                    out.flush();
                 }
             } catch (IOException e) {
                 throw new RuntimeException(e);
